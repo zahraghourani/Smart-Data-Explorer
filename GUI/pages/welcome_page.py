@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from tkinter import filedialog
+from GUI.utils.data_loader import DataStorage
 import pandas as pd
 from PIL import Image
 
@@ -37,19 +38,19 @@ class WelcomePage(ctk.CTkFrame):
 
         # ICONS
         clear_icon = ctk.CTkImage(
-            light_image=Image.open("assets/clear.png"),
+            light_image=Image.open("GUI/assets/clear.png"),
             size=(22, 22)
         )
         close_icon = ctk.CTkImage(
-            light_image=Image.open("assets/close.png"),
+            light_image=Image.open("GUI/assets/close.png"),
             size=(18, 18)
         )
         load_icon = ctk.CTkImage(
-            light_image=Image.open("assets/document.png"),
+            light_image=Image.open("GUI/assets/document.png"),
             size=(22, 22)
         )
         next_icon = ctk.CTkImage(
-            light_image=Image.open("assets/next.png"),
+            light_image=Image.open("GUI/assets/next.png"),
             size=(22, 22)
         )
         
@@ -119,13 +120,13 @@ class WelcomePage(ctk.CTkFrame):
             corner_radius=30,
             fg_color="#555555",
             hover_color="#444444",
-            command=lambda: controller.show_page("EDAPage"))
+            command=lambda: controller.switch_page("EDAPage"))
         self.next_btn.grid(row=1, column=1, sticky="se", pady=40, padx=40)
 
         # --- RIGHT ILLUSTRATION IMAGE ---
         try:
             img = ctk.CTkImage(
-                light_image=Image.open("assets/welcome-illustration.png"),
+                light_image=Image.open("GUI/assets/welcome-illustration.png"),
                 size=(500, 500)
             )
 
@@ -136,6 +137,8 @@ class WelcomePage(ctk.CTkFrame):
             print("Image Error:", e)
 
     # FUNCTIONS
+    def refresh(self):
+        pass  # no data needed
 
     def load_csv(self):
         file_path = filedialog.askopenfilename(
@@ -144,25 +147,21 @@ class WelcomePage(ctk.CTkFrame):
         )
 
         if file_path:
-            try:
-                self.loaded_df = pd.read_csv(file_path)
-                self.csv_loaded = True
+            success = DataStorage.load_csv(file_path)
 
-                # Update label
+            if success:
                 filename = file_path.split("/")[-1]
+
                 self.status_label.configure(
                     text=f"Loaded: {filename}",
-                    text_color="#3c8d40"   # green text
+                    text_color="#3c8d40"
                 )
 
-                # Enable Next button
                 self.next_btn.configure(state="normal")
-
                 print("CSV Loaded Successfully!")
-                print(self.loaded_df.head())
+                print(DataStorage.get().head())
 
-            except Exception as e:
-                print("Error loading CSV:", e)
+            else:
                 self.status_label.configure(
                     text="Error loading file.",
                     text_color="red"
