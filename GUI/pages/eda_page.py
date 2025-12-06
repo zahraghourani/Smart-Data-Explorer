@@ -1,18 +1,27 @@
 import customtkinter as ctk
 import tkinter as tk
+import pandas as pd
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import seaborn as sns
 from PIL import Image, ImageDraw, ImageFont
 from GUI.utils.data_loader import DataStorage
-from EDA.eda_summary import create_duplicates_table
+from EDA.eda_summary import *
 from GUI.pages.eda_components.summary_card import SummaryCard
 from GUI.pages.eda_components.first5rows_card import First5RowsCard
 from GUI.pages.eda_components.column_stats_card import ColumnStatsCard
 from GUI.pages.eda_components.duplicate_card import DuplicateCard
+from GUI.pages.eda_components.extra_summary_card import ExtraSummaryCard
+from GUI.pages.eda_components.plot_histogram import plot_histogram
+from GUI.pages.eda_components.plot_scatter import plot_scatter
+from GUI.pages.eda_components.plot_heatmap import plot_heatmap
+
 
 class EDAPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-
+        self.configure(fg_color="#FFFFFF")
         # ----- LEFT SIDEBAR -----
         sidebar = ctk.CTkFrame(self, width=150, fg_color="#E8F4E5", bg_color = "#FFFFFF")
         sidebar.pack(side="left", fill="y")
@@ -52,7 +61,8 @@ class EDAPage(ctk.CTkFrame):
         
         # scrollable page (full page)
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="#FFFFFF", bg_color="#FFFFFF")
-        self.scroll.pack(fill="both", expand=True, padx=20, pady=20)
+        self.scroll._parent_canvas.bind("<Configure>", self._resize_scroll_width)
+        self.scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Remove the grey canvas background inside CTkScrollableFrame
         canvas = self.scroll._parent_canvas
@@ -71,6 +81,15 @@ class EDAPage(ctk.CTkFrame):
         self.active_tab = "overview"
         self.tab_content = ctk.CTkFrame(self.left, fg_color="transparent")
         self.tab_content.pack(fill="both", expand=True)
+
+        # Make 2 equal columns and 2 equal rows
+        self.tab_content.grid_columnconfigure(0, weight=1, uniform="col")
+        self.tab_content.grid_columnconfigure(1, weight=1, uniform="col")
+
+        self.tab_content.grid_rowconfigure(0, weight=1, uniform="row")
+        self.tab_content.grid_rowconfigure(1, weight=1, uniform="row")
+
+
 
     def refresh(self):
         df = DataStorage.get()
@@ -126,12 +145,12 @@ class EDAPage(ctk.CTkFrame):
             col_types = ", ".join([f"{col}: {dtype}" for col, dtype in df.dtypes.items()])
 
             # Missing
-            total_missing = df.isna().sum().sum()
+            total_missing = show_missing_total(df)
             pct_missing = (total_missing / (n_rows * n_cols)) * 100 if n_rows > 0 else 0
             missing_text = f"Total {total_missing} ({pct_missing:.1f}%)"
 
             # Duplicates
-            dup_rows = df.duplicated().sum()
+            dup_rows = show_duplicates_total(df)
             dup_text = f"Total {dup_rows} rows"
 
             overview = {
@@ -162,34 +181,44 @@ class EDAPage(ctk.CTkFrame):
         # self.create_shadow_wrapper(self.tab_content, self.dup_card)
         # self.dup_card.update(df)
 
+        # OVERVIEW TAB CONTENT
+        # show_overview(df)
+
         # SUMMARY CARD
-        wrapper, summary = self.create_shadow_wrapper(self.tab_content, SummaryCard)
+        # wrapper, summary = self.create_shadow_wrapper(self.tab_content, SummaryCard)
+        # summary.update_from_overview(overview)
+
+        wrapper_summary, summary = self.create_shadow_wrapper(self.tab_content, SummaryCard)
         summary.update_from_overview(overview)
+        wrapper_summary.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+
 
         # FIRST 5 ROWS CARD
-        wrapper, first5 = self.create_shadow_wrapper(self.tab_content, First5RowsCard)
+        # wrapper, first5 = self.create_shadow_wrapper(self.tab_content, First5RowsCard)
+        # first5.update(df)
+
+        wrapper_first5, first5 = self.create_shadow_wrapper(self.tab_content, First5RowsCard)
         first5.update(df)
+        wrapper_first5.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
         # COLUMN STATS
-        wrapper, colstats = self.create_shadow_wrapper(self.tab_content, ColumnStatsCard)
+        # wrapper, colstats = self.create_shadow_wrapper(self.tab_content, ColumnStatsCard)
+        # colstats.update(df)
+
+        wrapper_stats, colstats = self.create_shadow_wrapper(self.tab_content, ColumnStatsCard)
         colstats.update(df)
+        wrapper_stats.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+        # EXTRA SUMMARY PANEL (NEW)
+        wrapper_extra, extra = self.create_shadow_wrapper(self.tab_content, ExtraSummaryCard)
+        extra.update(df)
+        wrapper_extra.grid(row=1, column=1, sticky="nwe", padx=10, pady=10)
 
         # DUPLICATES
-        from GUI.pages.eda_components.duplicate_card import DuplicateCard
-        wrapper, dup = self.create_shadow_wrapper(self.tab_content, DuplicateCard)
-        dup.update(df)
+        # from GUI.pages.eda_components.duplicate_card import DuplicateCard
+        # wrapper, dup = self.create_shadow_wrapper(self.tab_content, DuplicateCard)
+        # dup.update(df)
 
-
-
-
-    def render_visualizations_tab(self):
-        label = ctk.CTkLabel(self.tab_content, text="Visualization Coming Soon...")
-        label.pack(pady=20)
-
-        # Later you add:
-        # - correlation heatmap
-        # - distribution plots
-        # - scatter matrix
 
     def create_vertical_text(self, text, font_size=16, text_color="#53555D", bg_color=(0, 0, 0, 0)):
         # Load a TTF font (change path if needed)
@@ -225,18 +254,186 @@ class EDAPage(ctk.CTkFrame):
             else:
                 btn.configure(fg_color="transparent")
 
-    def create_shadow_wrapper(self, parent, CardClass, pad=(20, 10)):
-        # Outer shadow container
+
+    def create_shadow_wrapper(self, parent, CardClass):
         wrapper = ctk.CTkFrame(
             parent,
             fg_color="#E5E5E5",
             corner_radius=12
         )
-        wrapper.pack(fill="x", pady=pad)
 
-        # Create card instance INSIDE wrapper
+        # FIX: prevent wrapper from shrinking
+        wrapper.grid_propagate(False)
+
+        # Force equal card size (change if you want)
+        wrapper.configure(width=550, height=300)
+
+        # Create card inside wrapper
         card = CardClass(wrapper)
         card.configure(fg_color="white")
-        card.pack(fill="both", expand=True, padx=6, pady=6)
+        card.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+
+        wrapper.grid_rowconfigure(0, weight=1)
+        wrapper.grid_columnconfigure(0, weight=1)
 
         return wrapper, card
+
+
+    def _resize_scroll_width(self, event):
+        canvas = self.scroll._parent_canvas
+
+        try:
+            # ALWAYS WORKS: get the first canvas window (the scrollable frame)
+            window_id = canvas.find_all()[0]
+
+            # Resize the inner frame so it matches canvas width
+            canvas.itemconfig(window_id, width=canvas.winfo_width())
+
+        except Exception as e:
+            print("Resize error:", e)
+
+
+    def render_visualizations_tab(self):
+        # Clear previous widgets
+        for w in self.tab_content.winfo_children():
+            w.destroy()
+        
+        # Get the dataframe
+        df = DataStorage.get()
+
+        df_clean = df.copy()
+
+        # Convert all possible numeric columns safely
+        # for col in df_clean.columns:
+        #     df_clean[col] = pd.to_numeric(df_clean[col], errors="ignore")
+        df_clean = df.apply(lambda col: pd.to_numeric(col, errors="coerce"))
+
+
+        # Select only true numeric columns
+        numeric_cols = df_clean.select_dtypes(include=["number"]).columns.tolist()
+
+        # Filter out columns with no real numeric data
+        numeric_cols = [
+            col for col in numeric_cols 
+            if df_clean[col].dropna().size > 0
+        ]
+        
+        # Get numeric columns
+        # numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        if not numeric_cols:
+            # If no numeric columns, show a message
+            no_data_label = ctk.CTkLabel(self.tab_content, text="No numeric columns available for visualization.", font=("Poppins", 14))
+            no_data_label.pack(pady=20)
+            return
+        
+        # Function to create a plot frame with title
+        # def create_plot_frame(parent, title):
+        #     frame = ctk.CTkFrame(parent, fg_color="white", corner_radius=10)
+        #     # frame.pack(fill="x", padx=20, pady=30)
+        #     title_label = ctk.CTkLabel(frame, text=title, font=("Poppins", 16, "bold"))
+        #     title_label.pack(pady=(10, 5))
+        #     plot_frame = ctk.CTkFrame(frame, fg_color="white", height=350)
+        #     plot_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        #     plot_frame.pack_propagate(False)
+
+        #     return frame, plot_frame
+
+        def create_plot_frame(parent, title):
+            frame = ctk.CTkFrame(parent, fg_color="white", corner_radius=10)
+
+            # Allow expansion
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_rowconfigure(1, weight=1)
+
+            title_label = ctk.CTkLabel(frame, text=title, font=("Poppins", 16, "bold"))
+            title_label.grid(row=0, column=0, pady=(10,5))
+
+            plot_frame = ctk.CTkFrame(frame, fg_color="white", height=350)
+            plot_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0,10))
+
+            return frame, plot_frame
+
+
+        
+        # container for top row
+        top_row = ctk.CTkFrame(self.tab_content, fg_color="transparent")
+        top_row.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top_row.grid_columnconfigure(0, weight=1)
+        top_row.grid_columnconfigure(1, weight=1)
+        top_row.grid_rowconfigure(0, weight=1)
+
+        # 1. Histogram with dropdown
+        hist_frame, hist_plot_frame = create_plot_frame(top_row, "Histogram")
+        hist_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+
+        hist_var = ctk.StringVar(value=numeric_cols[0] if numeric_cols else "")
+        hist_menu = ctk.CTkOptionMenu(
+            hist_frame, 
+            variable=hist_var, 
+            values=numeric_cols, 
+            command=lambda col: self.update_histogram(col, hist_plot_frame)
+        )
+        hist_menu.grid(row=2, column=0, pady=(0,10))
+        
+        # Initial histogram
+        self.update_histogram(hist_var.get(), hist_plot_frame)
+        
+        # 2. Correlation Heatmap
+        heatmap_frame, heatmap_plot_frame = create_plot_frame(top_row, "Correlation Heatmap")
+        heatmap_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+
+        hist_frame.grid_columnconfigure(0, weight=1)
+        hist_frame.grid_rowconfigure(1, weight=1)
+
+        heatmap_frame.grid_columnconfigure(0, weight=1)
+        heatmap_frame.grid_rowconfigure(1, weight=1)
+
+
+        fig = Figure(figsize=(6, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        corr = df[numeric_cols].corr()
+        sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
+        ax.set_title("Correlation Heatmap")
+        canvas = FigureCanvasTkAgg(fig, master=heatmap_plot_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        # 3. Scatter Plot with X and Y dropdowns
+        scatter_frame, scatter_plot_frame = create_plot_frame(self.tab_content, "Scatter Plot")
+        scatter_frame.pack(fill="x", padx=10, pady=20)
+
+        x_var = ctk.StringVar(value=numeric_cols[0] if numeric_cols else "")
+        y_var = ctk.StringVar(value=numeric_cols[1] if len(numeric_cols) > 1 else numeric_cols[0] if numeric_cols else "")
+        scatter_frame.grid_rowconfigure(2, weight=0)
+        scatter_frame.grid_columnconfigure(0, weight=1)
+        scatter_frame.grid_columnconfigure(1, weight=1)
+        x_menu = ctk.CTkOptionMenu(
+            scatter_frame,
+            variable=x_var,
+            values=numeric_cols,
+            command=lambda _: self.update_scatter(x_var.get(), y_var.get(), scatter_plot_frame)
+        )
+
+        y_menu = ctk.CTkOptionMenu(
+            scatter_frame,
+            variable=y_var,
+            values=numeric_cols,
+            command=lambda _: self.update_scatter(x_var.get(), y_var.get(), scatter_plot_frame)
+        )
+
+        x_menu.grid(row=2, column=0, padx=(0, 10), pady=(10, 10), sticky="ew")
+        y_menu.grid(row=2, column=1, pady=(10, 10), sticky="ew")
+
+
+        # Initial scatter plot
+        self.update_scatter(x_var.get(), y_var.get(), scatter_plot_frame)
+    
+    def update_histogram(self, column, plot_frame):
+        df = DataStorage.get()
+        plot_histogram(df, column, plot_frame)
+
+    def update_scatter(self, x_col, y_col, plot_frame):
+        df = DataStorage.get()
+        plot_scatter(df, x_col, y_col, plot_frame)

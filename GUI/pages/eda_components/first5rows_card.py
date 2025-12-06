@@ -33,9 +33,9 @@ class First5RowsCard(BaseCard):
         # self.canvas.configure(yscrollcommand=self.v_scroll.set, xscrollcommand=self.h_scroll.set)
 
         # SCROLLBARS (CTk look)
-        self.v_scroll = ctk.CTkScrollbar(container, orientation="vertical",
-                                        command=self.canvas.yview)
-        self.v_scroll.grid(row=0, column=1, sticky="ns")
+        # self.v_scroll = ctk.CTkScrollbar(container, orientation="vertical",
+        #                                 command=self.canvas.yview)
+        # self.v_scroll.grid(row=0, column=1, sticky="ns")
 
         self.h_scroll = ctk.CTkScrollbar(container, orientation="horizontal",
                                         command=self.canvas.xview)
@@ -43,7 +43,7 @@ class First5RowsCard(BaseCard):
 
         # connect canvas → scrollbars
         self.canvas.configure(
-            yscrollcommand=self.v_scroll.set,
+            # yscrollcommand=self.v_scroll.set,
             xscrollcommand=self.h_scroll.set
         )
 

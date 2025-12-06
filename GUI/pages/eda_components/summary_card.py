@@ -41,7 +41,7 @@ class SummaryCard(BaseCard):
             wrap="word",
             font=("Poppins", 13)
         )
-        self.col_text.grid(row=1, column=1, sticky="we", padx=10, pady=(8, 2))
+        self.col_text.grid(row=1, column=1, sticky="we", padx=10, pady=(4, 2))
 
         # 3) Missing values summary
         miss_title = ctk.CTkLabel(content,
