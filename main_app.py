@@ -2,11 +2,15 @@ import customtkinter as ctk
 from GUI.pages.welcome_page import WelcomePage
 from GUI.pages.eda_page import EDAPage
 from GUI.pages.feature_page import FeatureEngineeringPage
-from GUI.pages.prediction_page import ModelPredictionPage
+from GUI.pages.prediction_page import ModelPage
 from tkinter import font as tkFont
 
 class SmartDataExplorerApp(ctk.CTk):
     def __init__(self):
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("green")
+        ctk.ThemeManager.theme["CTk"]["fg_color"] = "#FFFFFF"   # make app background white
+
         super().__init__()
 
         # --- Window setup ---
@@ -19,7 +23,7 @@ class SmartDataExplorerApp(ctk.CTk):
 
         # ---------- NAVBAR ----------
         self.navbar = ctk.CTkFrame(self, height=80, fg_color="#E8F4E5")
-        # self.navbar.pack(fill="x")
+        self.navbar.pack(fill="x", side="top")
 
         # Navbar Buttons
         # self.pages = {}
@@ -52,11 +56,11 @@ class SmartDataExplorerApp(ctk.CTk):
         self.nav_buttons["EDAPage"] = ctk.CTkButton(self.navbar, text="EDA", font=font,
                                                 command=lambda: self.switch_page("EDAPage"),
                                                 fg_color="transparent", text_color="#53555D")
-        self.nav_buttons["FeatureEngineeringPage"] = ctk.CTkButton(self.navbar, text="Feature Engineering", font=font,
-                                                 command=lambda: self.switch_page("FeatureEngineeringPage"),
-                                                 fg_color="transparent", text_color="#53555D")
-        self.nav_buttons["ModelPredictionPage"] = ctk.CTkButton(self.navbar, text="Model Prediction", font=font,
-                                                 command=lambda: self.switch_page("ModelPredictionPage"),
+        # self.nav_buttons["FeatureEngineeringPage"] = ctk.CTkButton(self.navbar, text="Feature Engineering", font=font,
+                                                #  command=lambda: self.switch_page("FeatureEngineeringPage"),
+                                                #  fg_color="transparent", text_color="#53555D")
+        self.nav_buttons["ModelPage"] = ctk.CTkButton(self.navbar, text="Model Prediction", font=font,
+                                                 command=lambda: self.switch_page("ModelPage"),
                                                  fg_color="transparent", text_color="#53555D")
         
         # Pack buttons horizontally
@@ -73,8 +77,8 @@ class SmartDataExplorerApp(ctk.CTk):
         # --- Create & store pages ---
         self.pages = {}
         self.current_page = None
-        for PageClass in (WelcomePage, EDAPage, FeatureEngineeringPage, ModelPredictionPage):
-            page = PageClass(container, controller=self)
+        for PageClass in (WelcomePage, EDAPage, ModelPage):
+            page = PageClass(container, self)
             name = PageClass.__name__
             self.pages[name] = page
             page.grid(row=0, column=0, sticky="nsew")
@@ -103,15 +107,16 @@ class SmartDataExplorerApp(ctk.CTk):
         self.current_page = page
 
         # Show navbar only on non-welcome pages
-        if name == "WelcomePage":
-            self.navbar.pack_forget()
-        else:
-            # Pack navbar IF it's not already visible
-            if not self.navbar.winfo_ismapped():
-                self.navbar.pack(fill="x", side="top")
+        # if name == "WelcomePage":
+        #     self.navbar.pack_forget()
+        # else:
+        #     # Pack navbar IF it's not already visible
+        #     if not self.navbar.winfo_ismapped():
+        #         self.navbar.pack(fill="x", side="top")
 
-            # Highlight correct tab
-            self.highlight_tab(name)
+        #     # Highlight correct tab
+        self.navbar.pack(fill="x", side="bottom")
+        self.highlight_tab(name)
 
 
 
