@@ -3,6 +3,8 @@ from tkinter import messagebox
 from PIL import Image
 import base64
 import io
+import pandas as pd
+import numpy as np
 
 from GUI.utils.data_loader import DataStorage
 from ML.model_training import (
@@ -12,6 +14,7 @@ from ML.model_training import (
     split_dataset_fixed,
     auto_model_selection,
     evaluate_model_metrics,
+    feature_engineering,
 )
 
 
@@ -21,6 +24,7 @@ class ModelPage(ctk.CTkFrame):
     - User chooses target and features.
     - Auto model selection + metrics.
     - Shows plots generated in evaluate_model_metrics().
+    - Allows predicting a new sample based on original feature values.
     """
 
     def __init__(self, parent, controller, *args, **kwargs):
@@ -36,11 +40,21 @@ class ModelPage(ctk.CTkFrame):
         self.left_plot_img = None
         self.right_plot_img = None
 
+        # model + metadata for prediction
+        self.best_model = None
+        self.trained_feature_names = []      # columns after feature_engineering
+        self.problem_type_current = None
+        self.target_encoder = None
+
+        # keep original features and training df for FE reuse
+        self.selected_features_current = []  # original feature names selected in UI
+        self.df_for_fe = None               # encoded df passed to FE during training
+        self.target_name_current = None
+
         # ---- White background for page ----
         self.configure(fg_color="white")
 
         # ====== SCROLLABLE CONTENT AREA ======
-        # Everything in the dashboard goes inside this scroll frame.
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="white")
         self.scroll.pack(fill="both", expand=True)
 
@@ -64,14 +78,6 @@ class ModelPage(ctk.CTkFrame):
         )
         title_label.grid(row=0, column=0, sticky="w")
 
-        # self.export_btn = ctk.CTkButton(
-        #     header,
-        #     text="Export Report",
-        #     width=120,
-        #     command=self.on_export_clicked
-        # )
-        # self.export_btn.grid(row=0, column=1, sticky="e")
-
         # ───────── MIDDLE ROW: CONFIG (L) + PERFORMANCE (R) ─────────
         # CONFIG CARD
         self.config_card = ctk.CTkFrame(
@@ -79,7 +85,7 @@ class ModelPage(ctk.CTkFrame):
         )
         self.config_card.grid(row=1, column=0, sticky="nsew",
                               padx=(20, 10), pady=10)
-        self.config_card.grid_rowconfigure(7, weight=1)
+        self.config_card.grid_rowconfigure(8, weight=1)
         self.config_card.grid_columnconfigure(0, weight=1)
 
         config_title = ctk.CTkLabel(
@@ -147,7 +153,18 @@ class ModelPage(ctk.CTkFrame):
             command=self.on_train_clicked
         )
         self.train_button.grid(row=6, column=0, padx=20,
-                               pady=(5, 10), sticky="w")
+                               pady=(5, 5), sticky="w")
+
+        # Predict button (enabled after training)
+        self.predict_button = ctk.CTkButton(
+            self.config_card,
+            text="Predict New Sample",
+            height=38,
+            state="disabled",
+            command=self.on_predict_clicked
+        )
+        self.predict_button.grid(row=7, column=0, padx=20,
+                                 pady=(0, 10), sticky="w")
 
         # Status text
         self.status_label = ctk.CTkLabel(
@@ -157,7 +174,7 @@ class ModelPage(ctk.CTkFrame):
             justify="left",
             fg_color="#F4F4F4"
         )
-        self.status_label.grid(row=7, column=0, padx=20,
+        self.status_label.grid(row=8, column=0, padx=20,
                                pady=(5, 15), sticky="nw")
 
         # PERFORMANCE CARD (right)
@@ -375,6 +392,7 @@ class ModelPage(ctk.CTkFrame):
                 text="Please go to the Welcome page and load a CSV file."
             )
             self.build_feature_checkboxes("")
+            self.predict_button.configure(state="disabled")
             return
 
         self.df = DataStorage.df
@@ -426,18 +444,34 @@ class ModelPage(ctk.CTkFrame):
         # subset to selected features + target
         df_sel = self.df[selected_features + [target]].copy()
 
+        # encode target if needed
         df_encoded, encoder, problem_type = encode_target_if_categorical(
             df_sel, target
         )
+
+        # split + FE inside
         X_train, X_test, y_train, y_test = split_dataset_fixed(
             df_encoded, target
         )
+
         best_model, performance = auto_model_selection(
             X_train, X_test, y_train, y_test, problem_type
         )
         metrics = evaluate_model_metrics(
             best_model, X_test, y_test, problem_type
         )
+
+        # Save model + metadata for prediction
+        self.best_model = best_model
+        self.trained_feature_names = X_train.columns.tolist()
+        self.problem_type_current = problem_type
+        self.target_encoder = encoder
+
+        self.selected_features_current = selected_features
+        self.df_for_fe = df_encoded.copy()
+        self.target_name_current = target
+
+        self.predict_button.configure(state="normal")  # enable prediction
 
         # update plots
         self._update_plots(problem_type, metrics)
@@ -447,8 +481,8 @@ class ModelPage(ctk.CTkFrame):
             f"Problem Type: {problem_type.capitalize()}")
 
         # summary card
+        best_name = max(performance, key=performance.get)
         if problem_type == "classification":
-            best_name = max(performance, key=performance.get)
             summ = (
                 f"Best model ({best_name}):\n"
                 f"Accuracy: {metrics['accuracy']:.3f}\n"
@@ -457,7 +491,6 @@ class ModelPage(ctk.CTkFrame):
                 f"F1-score (weighted): {metrics['f1_score']:.3f}"
             )
         else:
-            best_name = max(performance, key=performance.get)
             summ = (
                 f"Best model ({best_name}):\n"
                 f"MAE: {metrics['MAE']:.3f}\n"
@@ -490,8 +523,144 @@ class ModelPage(ctk.CTkFrame):
         self.metrics_box.configure(state="disabled")
 
         self.status_label.configure(
-            text=f"Training complete. Best model trained on '{target}'."
+            text=f"Training complete. Best model trained on '{target}'.")
+
+    # ───────── Predict new data ─────────
+    def on_predict_clicked(self):
+        """
+        Open a small window where the user can enter ORIGINAL feature values
+        (e.g., Stock, Rating, Country...). We reuse the same feature engineering
+        pipeline as training, then predict with the trained model.
+        """
+        if self.best_model is None or not self.selected_features_current:
+            messagebox.showerror("Error", "No trained model available.")
+            return
+
+        top = ctk.CTkToplevel(self)
+        top.title("Predict New Sample")
+
+        entry_widgets = {}      # numeric inputs
+        dropdown_widgets = {}   # categorical inputs
+
+        row_idx = 0
+        info_label = ctk.CTkLabel(
+            top,
+            text="Enter values for the original features used in training:",
+            font=("Arial", 13, "bold")
         )
+        info_label.grid(row=row_idx, column=0, columnspan=2,
+                        padx=10, pady=(10, 5), sticky="w")
+        row_idx += 1
+
+        # Build inputs using ORIGINAL columns and dataset info
+        for feat in self.selected_features_current:
+            series = self.df[feat]  # original column
+
+            # Label
+            lbl_text = feat
+            if series.dtype != object:
+                # numeric -> show min/max hint
+                try:
+                    min_val = series.min()
+                    max_val = series.max()
+                    lbl_text += f" (min={min_val}, max={max_val})"
+                except Exception:
+                    pass
+
+            lbl = ctk.CTkLabel(top, text=lbl_text + ":", anchor="w")
+            lbl.grid(row=row_idx, column=0, padx=10, pady=3, sticky="w")
+
+            # Decide: categorical vs numeric input
+            if series.dtype == object or series.nunique() <= 20:
+                # treat as categorical -> dropdown with unique values
+                cat_values = [str(v) for v in series.dropna().unique()]
+                if not cat_values:
+                    cat_values = [""]
+                var = ctk.StringVar(value=cat_values[0])
+                opt = ctk.CTkOptionMenu(top, values=cat_values, variable=var, width=180)
+                opt.grid(row=row_idx, column=1, padx=10, pady=3, sticky="w")
+                dropdown_widgets[feat] = var
+            else:
+                # numeric -> free text entry
+                ent = ctk.CTkEntry(top, width=180)
+                ent.grid(row=row_idx, column=1, padx=10, pady=3, sticky="w")
+                entry_widgets[feat] = ent
+
+            row_idx += 1
+
+        # Output label
+        result_var = ctk.StringVar(value="Prediction: —")
+        result_label = ctk.CTkLabel(top, textvariable=result_var, font=("Arial", 13, "bold"))
+        result_label.grid(row=row_idx, column=0, columnspan=2,
+                          padx=10, pady=(10, 5), sticky="w")
+        row_idx += 1
+
+        def do_predict():
+            # 1) Build a one-row DataFrame with ORIGINAL feature values
+            raw_dict = {}
+            try:
+                for feat in self.selected_features_current:
+                    series = self.df[feat]
+                    if feat in dropdown_widgets:  # categorical
+                        raw_dict[feat] = dropdown_widgets[feat].get()
+                    else:  # numeric
+                        val_str = entry_widgets[feat].get().strip()
+                        if val_str == "":
+                            raise ValueError(f"Feature '{feat}' is empty.")
+                        raw_dict[feat] = float(val_str)
+            except ValueError as e:
+                messagebox.showerror("Input error", str(e))
+                return
+
+            df_new_raw = pd.DataFrame([raw_dict])
+
+            # 2) Reuse SAME feature engineering as training
+            #    We append the new row to the training df (df_for_fe),
+            #    run feature_engineering, then take the last row as X_new.
+            if self.df_for_fe is None or self.target_name_current is None:
+                messagebox.showerror("Error", "Training metadata missing.")
+                return
+
+            df_concat = self.df_for_fe.copy()
+            dummy = df_new_raw.copy()
+            dummy[self.target_name_current] = np.nan  # target missing for new sample
+            df_concat = pd.concat([df_concat, dummy], ignore_index=True)
+
+            df_fe_all = feature_engineering(df_concat, self.target_name_current)
+            X_all = df_fe_all.drop(columns=[self.target_name_current])
+
+            # X for new sample is the last row
+            X_new = X_all.tail(1)
+
+            # Ensure same columns / order as model was trained on
+            for col in self.trained_feature_names:
+                if col not in X_new.columns:
+                    X_new[col] = 0
+            X_new = X_new[self.trained_feature_names]
+
+            # 3) Predict
+            try:
+                pred = self.best_model.predict(X_new)[0]
+            except Exception as e:
+                messagebox.showerror("Prediction error", str(e))
+                return
+
+            # 4) Decode for classification
+            if self.problem_type_current == "classification" and self.target_encoder is not None:
+                try:
+                    pred_decoded = self.target_encoder.inverse_transform([int(pred)])[0]
+                    result_var.set(f"Prediction: {pred_decoded} (encoded={pred})")
+                except Exception:
+                    result_var.set(f"Prediction (encoded label): {pred}")
+            else:
+                try:
+                    result_var.set(f"Prediction: {float(pred):.4f}")
+                except Exception:
+                    result_var.set(f"Prediction: {pred}")
+
+        predict_btn = ctk.CTkButton(top, text="Predict", command=do_predict)
+        predict_btn.grid(row=row_idx, column=0, columnspan=2,
+                         padx=10, pady=(5, 10), sticky="ew")
 
     # ───────── Export button ─────────
     def on_export_clicked(self):

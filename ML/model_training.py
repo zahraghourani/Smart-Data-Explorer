@@ -18,6 +18,7 @@ import base64
 import numpy as np
 import seaborn as sns
 
+
 # ---------------- UI SIDE (ZAHRA) ----------------
 # 1. Backend sends dataframe columns to UI
 # 2. UI shows dropdown with all columns, user selects target
@@ -76,13 +77,22 @@ def encode_target_if_categorical(df, target):
     - modified df
     - LabelEncoder (or None)
     - detected problem_type
+    NOTE: rows with NaN in target are dropped.
     """
+    df = df.copy()
     ptype = detect_problem_type(df, target)
     encoder = None
 
     if ptype == "classification":
+        # Drop rows where target is NaN before encoding
+        df = df[~df[target].isna()].copy()
+
         encoder = LabelEncoder()
         df[target] = encoder.fit_transform(df[target])
+
+    else:
+        # For regression also drop NaNs in target
+        df = df[~df[target].isna()].copy()
 
     return df, encoder, ptype
 
@@ -93,12 +103,16 @@ def encode_target_if_categorical(df, target):
 
 def feature_engineering(df, target):
     """
-    Basic automatic feature engineering on X (all columns except target).
+    Automatic feature engineering on X (all columns except target).
 
-    - One-hot encode categorical features (low/medium cardinality).
+    Steps:
+    - Detect date-like columns, extract year/month/day/weekday, drop original date column.
+    - One-hot encode low-cardinality categorical features (<= 20 unique values).
+    - Drop high-cardinality text columns (too many categories).
     - Keep numeric features as they are.
-    - Create simple pairwise interaction features between numeric columns
+    - Create pairwise interaction features between numeric columns
       (only if there aren't too many numeric columns).
+    - DO NOT touch the target column.
 
     Returns:
         df_fe: dataframe with engineered features + original target column.
@@ -109,28 +123,60 @@ def feature_engineering(df, target):
     X = df.drop(columns=[target])
     y = df[target]
 
-    # Identify numeric and categorical predictors
-    numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    # =========================
+    # 1) Handle date-like columns
+    # =========================
+    date_cols = []
+    for col in X.columns:
+        # Only try to parse object columns as dates
+        if X[col].dtype == object:
+            parsed = pd.to_datetime(X[col], errors='coerce')  # infer_datetime_format removed (deprecated)
+            non_null_ratio = parsed.notna().mean()
+
+            # If most values can be parsed as a date, treat as date column
+            if non_null_ratio > 0.8:  # threshold can be adjusted
+                date_cols.append(col)
+                X[f"{col}_year"] = parsed.dt.year
+                X[f"{col}_month"] = parsed.dt.month
+                X[f"{col}_day"] = parsed.dt.day
+                X[f"{col}_weekday"] = parsed.dt.weekday
+
+    # Drop original date text columns
+    if date_cols:
+        X = X.drop(columns=date_cols)
+
+    # =========================
+    # 2) Handle categorical text columns
+    # =========================
+    # After dropping date cols, recompute types
     categorical_cols = X.select_dtypes(exclude=[np.number]).columns.tolist()
 
-    # --- 1) One-hot encode categorical features (if any) ---
-    # Only for reasonably small-cardinality columns to avoid explosion
     low_cardinality_cats = []
+    high_cardinality_cats = []
+
     for col in categorical_cols:
-        if X[col].nunique() <= 20:  # threshold can be adjusted
+        nunq = X[col].nunique()
+        if nunq <= 20:
             low_cardinality_cats.append(col)
-        # if too many unique categories, we simply drop it
-        # (or you can keep it raw if you prefer)
+        else:
+            high_cardinality_cats.append(col)
+
+    # Drop high-cardinality categorical columns (e.g. Country with many values)
+    if high_cardinality_cats:
+        X = X.drop(columns=high_cardinality_cats)
+
+    # One-hot encode low-cardinality categoricals
     if low_cardinality_cats:
         X = pd.get_dummies(X, columns=low_cardinality_cats, drop_first=True)
 
-    # Recompute numeric_cols after one-hot encoding (all are numeric now)
+    # =========================
+    # 3) Numeric features & interactions
+    # =========================
     numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
 
-    # --- 2) Pairwise interaction features between numeric columns ---
-    # To avoid too many new features, only do this if numeric_cols is small
+    # Pairwise interaction features only if numeric_cols is not too large
     max_numeric_for_interactions = 6  # safety limit
-    if len(numeric_cols) > 1 and len(numeric_cols) <= max_numeric_for_interactions:
+    if 1 < len(numeric_cols) <= max_numeric_for_interactions:
         for i in range(len(numeric_cols)):
             for j in range(i + 1, len(numeric_cols)):
                 c1 = numeric_cols[i]
@@ -138,7 +184,9 @@ def feature_engineering(df, target):
                 inter_name = f"{c1}_x_{c2}"
                 X[inter_name] = X[c1] * X[c2]
 
-    # Re-attach target at the end
+    # =========================
+    # 4) Re-attach target
+    # =========================
     df_fe = pd.concat([X, y], axis=1)
 
     return df_fe
@@ -150,13 +198,34 @@ def feature_engineering(df, target):
 
 def split_dataset_fixed(df, target):
     """
-    Apply feature engineering, then split into train/test.
+    Apply feature engineering, clean NaNs, then split into train/test.
+
+    Ensures:
+    - X is fully numeric
+    - X and y have no NaNs (rows with missing values are dropped)
     """
+    # Work on a copy
+    df = df.copy()
+
+    # ===== 0) Drop rows where TARGET is NaN (extra safety) =====
+    df = df[~df[target].isna()].copy()
+
     # Apply feature engineering to all data
     df_fe = feature_engineering(df, target)
 
     X = df_fe.drop(columns=[target])
     y = df_fe[target]
+
+    # Replace inf with NaN in X, then drop rows with any NaN in X or y
+    X = X.replace([np.inf, -np.inf], np.nan)
+
+    non_nan_mask = (~X.isna().any(axis=1)) & (~y.isna())
+    X = X[non_nan_mask]
+    y = y[non_nan_mask]
+
+    # Final safety check: X must be numeric
+    if not all(pd.api.types.is_numeric_dtype(X[col]) for col in X.columns):
+        raise ValueError("Non-numeric columns still present in X after feature_engineering.")
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
@@ -337,6 +406,10 @@ def predict_new_data(model, new_data, encoders=None):
                 values are user input
     - encoders: dict, feature_name -> LabelEncoder (for categorical features)
 
+    NOTE:
+    For a production system, you must apply the SAME feature engineering
+    (same columns, same dummies, same scaling) used during training.
+
     Returns:
     - prediction: predicted value
     - proba: probabilities (if classification model supports predict_proba)
@@ -349,11 +422,6 @@ def predict_new_data(model, new_data, encoders=None):
         for col, encoder in encoders.items():
             if col in df_new.columns:
                 df_new[col] = encoder.transform(df_new[col])
-
-    # NOTE:
-    # For a full production setup, the SAME feature_engineering steps
-    # applied during training should also be applied here to df_new,
-    # using the same columns and transformations.
 
     # Predict
     prediction = model.predict(df_new)
