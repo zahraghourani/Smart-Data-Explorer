@@ -365,7 +365,7 @@ class EDAPage(ctk.CTkFrame):
         top_row.grid_rowconfigure(0, weight=1)
 
         # 1. Histogram with dropdown
-        hist_frame, hist_plot_frame = create_plot_frame(top_row, "Histogram")
+        hist_frame, hist_plot_frame = create_plot_frame(top_row, "")
         hist_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         hist_var = ctk.StringVar(value=numeric_cols[0] if numeric_cols else "")
@@ -375,13 +375,13 @@ class EDAPage(ctk.CTkFrame):
             values=numeric_cols, 
             command=lambda col: self.update_histogram(col, hist_plot_frame)
         )
-        hist_menu.grid(row=2, column=0, pady=(0,10))
+        hist_menu.grid(row=0, column=0, pady=(0,10))
         
         # Initial histogram
         self.update_histogram(hist_var.get(), hist_plot_frame)
         
         # 2. Correlation Heatmap
-        heatmap_frame, heatmap_plot_frame = create_plot_frame(top_row, "Correlation Heatmap")
+        heatmap_frame, heatmap_plot_frame = create_plot_frame(top_row, "")
         heatmap_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
         hist_frame.grid_columnconfigure(0, weight=1)
@@ -404,27 +404,38 @@ class EDAPage(ctk.CTkFrame):
         scatter_frame, scatter_plot_frame = create_plot_frame(self.tab_content, "Scatter Plot")
         scatter_frame.pack(fill="x", padx=10, pady=20)
 
-        x_var = ctk.StringVar(value=numeric_cols[0] if numeric_cols else "")
-        y_var = ctk.StringVar(value=numeric_cols[1] if len(numeric_cols) > 1 else numeric_cols[0] if numeric_cols else "")
-        scatter_frame.grid_rowconfigure(2, weight=0)
-        scatter_frame.grid_columnconfigure(0, weight=1)
-        scatter_frame.grid_columnconfigure(1, weight=1)
+        # ---- TOP BAR FOR DROPDOWNS ----
+        top_controls = ctk.CTkFrame(scatter_frame, fg_color="white")
+        top_controls.grid(row=0, column=0, pady=(5, 10))
+
+        # Prevent stretching
+        top_controls.grid_columnconfigure(0, weight=0)
+        top_controls.grid_columnconfigure(1, weight=0)
+
+        x_var = ctk.StringVar(value=numeric_cols[0])
+        y_var = ctk.StringVar(value=numeric_cols[1] if len(numeric_cols) > 1 else numeric_cols[0])
+
         x_menu = ctk.CTkOptionMenu(
-            scatter_frame,
+            top_controls,
             variable=x_var,
             values=numeric_cols,
+            width=150,
             command=lambda _: self.update_scatter(x_var.get(), y_var.get(), scatter_plot_frame)
         )
 
         y_menu = ctk.CTkOptionMenu(
-            scatter_frame,
+            top_controls,
             variable=y_var,
             values=numeric_cols,
+            width=150,
             command=lambda _: self.update_scatter(x_var.get(), y_var.get(), scatter_plot_frame)
         )
 
-        x_menu.grid(row=2, column=0, padx=(0, 10), pady=(10, 10), sticky="ew")
-        y_menu.grid(row=2, column=1, pady=(10, 10), sticky="ew")
+        x_menu.grid(row=0, column=0, padx=(0, 20))
+        y_menu.grid(row=0, column=1)
+
+        # initial plot
+        self.update_scatter(x_var.get(), y_var.get(), scatter_plot_frame)
 
 
         # Initial scatter plot
