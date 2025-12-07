@@ -284,7 +284,11 @@ def auto_model_selection(X_train, X_test, y_train, y_test, problem_type):
 # METRICS & EVALUATION
 # ==================================================
 
+
 def evaluate_model_metrics(model, X_test, y_test, problem_type="classification"):
+    """
+    Enhanced version with additional plots for linear models.
+    """
     results = {}
 
     if problem_type == "classification":
@@ -309,34 +313,94 @@ def evaluate_model_metrics(model, X_test, y_test, problem_type="classification")
             y_test, y_pred, output_dict=True
         )
 
-        # Confusion matrix plot
+        # ===== Confusion matrix plot (ALWAYS for classification) =====
         cm = confusion_matrix(y_test, y_pred)
         fig, ax = plt.subplots(figsize=(5, 4))
         sns.heatmap(cm, annot=True, fmt='d', cmap="Blues", ax=ax)
         ax.set_xlabel("Predicted")
         ax.set_ylabel("Actual")
+        ax.set_title("Confusion Matrix")
         buf = io.BytesIO()
-        plt.savefig(buf, format='png')
+        plt.savefig(buf, format='png', bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
         results["confusion_matrix_plot"] = base64.b64encode(
             buf.read()
         ).decode('utf-8')
 
-        # ROC/AUC (only for binary classification)
-        if y_proba is not None and len(np.unique(y_test)) == 2:
+        # ===== RIGHT PLOT LOGIC =====
+        # Priority: Feature Importance > Coefficient Plot > ROC Curve
+        
+        # 1. Feature importance for tree-based classifiers
+        if hasattr(model, "feature_importances_"):
+            importances = model.feature_importances_
+            feature_names = X_test.columns.tolist()
+            
+            # Sort by importance
+            indices = np.argsort(importances)[::-1]
+            top_n = min(15, len(importances))
+            
+            fig, ax = plt.subplots(figsize=(8, max(4, top_n * 0.35)))
+            sns.barplot(
+                x=importances[indices[:top_n]],
+                y=[feature_names[i] for i in indices[:top_n]],
+                ax=ax,
+                palette="viridis"
+            )
+            ax.set_title("Feature Importances")
+            ax.set_xlabel("Importance")
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            plt.close(fig)
+            buf.seek(0)
+            results["feature_importance_plot"] = base64.b64encode(
+                buf.read()
+            ).decode('utf-8')
+        
+        # 2. Coefficient plot for Logistic Regression
+        elif hasattr(model, "coef_"):
+            coefs = model.coef_[0] if len(model.coef_.shape) > 1 and model.coef_.shape[0] == 1 else model.coef_.flatten()
+            feature_names = X_test.columns.tolist()
+            
+            # Sort by absolute coefficient value
+            indices = np.argsort(np.abs(coefs))[::-1]
+            top_n = min(15, len(coefs))
+            
+            fig, ax = plt.subplots(figsize=(8, max(4, top_n * 0.35)))
+            colors = ['green' if coefs[i] > 0 else 'red' for i in indices[:top_n]]
+            sns.barplot(
+                x=coefs[indices[:top_n]],
+                y=[feature_names[i] for i in indices[:top_n]],
+                ax=ax,
+                palette=colors
+            )
+            ax.set_title("Feature Coefficients (Logistic Regression)")
+            ax.set_xlabel("Coefficient Value")
+            ax.axvline(x=0, color='black', linestyle='--', linewidth=0.8)
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            plt.close(fig)
+            buf.seek(0)
+            results["feature_importance_plot"] = base64.b64encode(
+                buf.read()
+            ).decode('utf-8')
+        
+        # 3. ROC curve for binary classification (fallback)
+        elif y_proba is not None and len(np.unique(y_test)) == 2:
             fpr, tpr, thresholds = roc_curve(y_test, y_proba[:, 1])
             auc_score = roc_auc_score(y_test, y_proba[:, 1])
             results["roc_auc"] = auc_score
-            fig, ax = plt.subplots()
-            ax.plot(fpr, tpr, label=f"AUC={auc_score:.2f}")
-            ax.plot([0, 1], [0, 1], '--', color='gray')
+
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(fpr, tpr, label=f"AUC = {auc_score:.3f}", linewidth=2)
+            ax.plot([0, 1], [0, 1], '--', color='gray', label='Random Classifier')
             ax.set_xlabel("False Positive Rate")
             ax.set_ylabel("True Positive Rate")
             ax.set_title("ROC Curve")
             ax.legend()
+            ax.grid(True, alpha=0.3)
             buf = io.BytesIO()
-            plt.savefig(buf, format='png')
+            plt.savefig(buf, format='png', bbox_inches='tight')
             plt.close(fig)
             buf.seek(0)
             results["roc_curve_plot"] = base64.b64encode(
@@ -352,40 +416,99 @@ def evaluate_model_metrics(model, X_test, y_test, problem_type="classification")
         results["RMSE"] = np.sqrt(results["MSE"])
         results["R2"] = r2_score(y_test, y_pred)
 
-        # Predicted vs Actual plot
-        fig, ax = plt.subplots()
-        ax.scatter(y_test, y_pred)
-        ax.plot(
-            [y_test.min(), y_test.max()],
-            [y_test.min(), y_test.max()],
-            'r--'
-        )
-        ax.set_xlabel("Actual")
-        ax.set_ylabel("Predicted")
-        ax.set_title("Predicted vs Actual")
+        # ===== LEFT PLOT: Predicted vs Actual =====
+        fig, ax = plt.subplots(figsize=(6, 5))
+        ax.scatter(y_test, y_pred, alpha=0.6, edgecolors='k', linewidth=0.5)
+        
+        # Perfect prediction line
+        min_val = min(y_test.min(), y_pred.min())
+        max_val = max(y_test.max(), y_pred.max())
+        ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+        
+        ax.set_xlabel("Actual Values")
+        ax.set_ylabel("Predicted Values")
+        ax.set_title(f"Predicted vs Actual (R² = {results['R2']:.3f})")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
         buf = io.BytesIO()
-        plt.savefig(buf, format='png')
+        plt.savefig(buf, format='png', bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
         results["predicted_vs_actual_plot"] = base64.b64encode(
             buf.read()
         ).decode('utf-8')
 
-        # Feature importance for tree-based models (optional)
+        # ===== RIGHT PLOT LOGIC =====
+        # Priority: Feature Importance > Coefficient Plot > Residual Plot
+        
+        # 1. Feature importance for tree-based models
         if hasattr(model, "feature_importances_"):
             importances = model.feature_importances_
-            fig, ax = plt.subplots(figsize=(6, 4))
+            feature_names = X_test.columns.tolist()
+            
+            # Sort by importance
+            indices = np.argsort(importances)[::-1]
+            top_n = min(15, len(importances))
+            
+            fig, ax = plt.subplots(figsize=(8, max(4, top_n * 0.35)))
             sns.barplot(
-                x=importances,
-                y=[f"F{i}" for i in range(len(importances))],
-                ax=ax
+                x=importances[indices[:top_n]],
+                y=[feature_names[i] for i in indices[:top_n]],
+                ax=ax,
+                palette="viridis"
             )
             ax.set_title("Feature Importances")
+            ax.set_xlabel("Importance")
             buf = io.BytesIO()
-            plt.savefig(buf, format='png')
+            plt.savefig(buf, format='png', bbox_inches='tight')
             plt.close(fig)
             buf.seek(0)
             results["feature_importance_plot"] = base64.b64encode(
+                buf.read()
+            ).decode('utf-8')
+        
+        # 2. Coefficient plot for Linear Regression
+        elif hasattr(model, "coef_"):
+            coefs = model.coef_.flatten()
+            feature_names = X_test.columns.tolist()
+            
+            # Sort by absolute coefficient value
+            indices = np.argsort(np.abs(coefs))[::-1]
+            top_n = min(15, len(coefs))
+            
+            fig, ax = plt.subplots(figsize=(8, max(4, top_n * 0.35)))
+            colors = ['green' if coefs[i] > 0 else 'red' for i in indices[:top_n]]
+            sns.barplot(
+                x=coefs[indices[:top_n]],
+                y=[feature_names[i] for i in indices[:top_n]],
+                ax=ax,
+                palette=colors
+            )
+            ax.set_title("Feature Coefficients (Linear Regression)")
+            ax.set_xlabel("Coefficient Value")
+            ax.axvline(x=0, color='black', linestyle='--', linewidth=0.8)
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            plt.close(fig)
+            buf.seek(0)
+            results["feature_importance_plot"] = base64.b64encode(
+                buf.read()
+            ).decode('utf-8')
+            
+            # BONUS: Also create residual plot (stored separately)
+            residuals = y_test - y_pred
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.scatter(y_pred, residuals, alpha=0.6, edgecolors='k', linewidth=0.5)
+            ax.axhline(y=0, color='r', linestyle='--', linewidth=2)
+            ax.set_xlabel("Predicted Values")
+            ax.set_ylabel("Residuals (Actual - Predicted)")
+            ax.set_title("Residual Plot")
+            ax.grid(True, alpha=0.3)
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            plt.close(fig)
+            buf.seek(0)
+            results["residual_plot"] = base64.b64encode(
                 buf.read()
             ).decode('utf-8')
 

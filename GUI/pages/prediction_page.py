@@ -327,56 +327,78 @@ class ModelPage(ctk.CTkFrame):
             return None
 
     def _update_plots(self, problem_type, metrics):
-        """Show backend plots in bottom cards."""
-        if problem_type == "classification":
-            # left = confusion matrix
-            cm_b64 = metrics.get("confusion_matrix_plot")
-            cm_img = self._b64_to_ctkimage(cm_b64)
-            self.left_plot_img = cm_img
-            if cm_img:
-                self.plot_label_left.configure(image=cm_img, text="")
-            else:
-                self.plot_label_left.configure(
-                    image=None, text="Confusion matrix not available."
-                )
+      """Show backend plots in bottom cards."""
 
-            # right = ROC curve (if binary)
-            roc_b64 = metrics.get("roc_curve_plot")
-            roc_img = self._b64_to_ctkimage(roc_b64)
-            self.right_plot_img = roc_img
-            if roc_img:
-                self.feat_label_right.configure(image=roc_img, text="")
-            else:
-                self.feat_label_right.configure(
-                    image=None,
-                    text="ROC curve not available\n"
-                         "(need binary classification and predict_proba)."
-                )
+    # ===== CLASSIFICATION =====
+      if problem_type == "classification":
+        # ---- Left: confusion matrix ----
+        cm_b64 = metrics.get("confusion_matrix_plot")
+        cm_img = self._b64_to_ctkimage(cm_b64)
+        self.left_plot_img = cm_img
 
-        else:  # regression
-            # left = predicted vs actual
-            pred_b64 = metrics.get("predicted_vs_actual_plot")
-            pred_img = self._b64_to_ctkimage(pred_b64)
-            self.left_plot_img = pred_img
-            if pred_img:
-                self.plot_label_left.configure(image=pred_img, text="")
-            else:
-                self.plot_label_left.configure(
-                    image=None,
-                    text="Predicted vs Actual plot not available."
-                )
+        if cm_img is not None:
+            self.plot_label_left.configure(image=cm_img, text="")
+        else:
+            self.plot_label_left.configure(
+                image=None,
+                text="Confusion matrix not available."
+            )
 
-            # right = feature importance
-            feat_b64 = metrics.get("feature_importance_plot")
-            feat_img = self._b64_to_ctkimage(feat_b64)
-            self.right_plot_img = feat_img
-            if feat_img:
-                self.feat_label_right.configure(image=feat_img, text="")
+        # ---- Right: prefer feature importance, else ROC ----
+        feat_b64 = metrics.get("feature_importance_plot")
+        roc_b64 = metrics.get("roc_curve_plot")
+
+        right_img = None
+        if feat_b64 is not None:
+            right_img = self._b64_to_ctkimage(feat_b64)
+        elif roc_b64 is not None:
+            right_img = self._b64_to_ctkimage(roc_b64)
+
+        self.right_plot_img = right_img
+
+        if right_img is not None:
+            self.feat_label_right.configure(image=right_img, text="")
+        else:
+            # Choose appropriate message
+            if "feature_importance_plot" in metrics:
+                msg = "Feature importance could not be rendered."
+            elif "roc_curve_plot" in metrics:
+                msg = "ROC curve could not be rendered."
             else:
-                self.feat_label_right.configure(
-                    image=None,
-                    text="Feature importance not available\nfor this model."
+                msg = (
+                    "No feature importance or ROC curve available.\n"
+                    "ROC requires binary classification with predict_proba."
                 )
+            self.feat_label_right.configure(image=None, text=msg)
+
+    # ===== REGRESSION =====
+      else:  # regression
+        # ---- Left: Predicted vs Actual ----
+        pred_b64 = metrics.get("predicted_vs_actual_plot")
+        pred_img = self._b64_to_ctkimage(pred_b64)
+        self.left_plot_img = pred_img
+
+        if pred_img is not None:
+            self.plot_label_left.configure(image=pred_img, text="")
+        else:
+            self.plot_label_left.configure(
+                image=None,
+                text="Predicted vs Actual plot not available."
+            )
+
+        # ---- Right: Feature importance (if available) ----
+        feat_b64 = metrics.get("feature_importance_plot")
+        feat_img = self._b64_to_ctkimage(feat_b64)
+        self.right_plot_img = feat_img
+
+        if feat_img is not None:
+            self.feat_label_right.configure(image=feat_img, text="")
+        else:
+            self.feat_label_right.configure(
+                image=None,
+                text="Feature importance not available\nfor this model."
+            )
+
 
     # ───────── lifecycle ─────────
     def refresh(self):
