@@ -93,11 +93,29 @@ class EDAPage(ctk.CTkFrame):
 
     def refresh(self):
         df = DataStorage.get()
+
         if df is None:
+            # 1) Clear whatever was shown before
+            for w in self.tab_content.winfo_children():
+                w.destroy()
+
+            # 2) Show a “no data” message instead of old summary
+            # msg = ctk.CTkLabel(
+            #     self.tab_content,
+            #     text="No dataset loaded.\nPlease go back to the Welcome page and load a CSV file.",
+            #     font=("Poppins", 16),
+            #     justify="center"
+            # )
+            # msg.grid(row=0, column=0, columnspan=2, padx=20, pady=40, sticky="n")
+            self.active_tab = "overview"
+            self.render_overview_tab()        # <-- note the self., no arguments
+            self.highlight_sidebar("overview")
+            print("REFRESH → no data, cleared EDA view")
             return
+
+        # If we have data → re-render current tab (overview or viz)
         self.switch_tab(self.active_tab)
-        print("REFRESH → Data:", DataStorage.get())
-        print("DEBUG:", type(DataStorage.get()), DataStorage.get().shape if DataStorage.get() is not None else None)
+        print("REFRESH → Data:", df.shape)
 
 
     def show_data_head(self):
@@ -300,13 +318,18 @@ class EDAPage(ctk.CTkFrame):
         
         # Get the dataframe
         df = DataStorage.get()
+        if df is None:
+            msg = ctk.CTkLabel(
+                self.tab_content,
+                text="No dataset loaded.\nVisualizations are unavailable.",
+                font=("Poppins", 16),
+                justify="center"
+            )
+            msg.pack(pady=40)
+            return
 
         df_clean = df.copy()
-
-        # Convert all possible numeric columns safely
-        # for col in df_clean.columns:
-        #     df_clean[col] = pd.to_numeric(df_clean[col], errors="ignore")
-        df_clean = df.apply(lambda col: pd.to_numeric(col, errors="coerce"))
+        df_clean = df_clean.apply(lambda col: pd.to_numeric(col, errors="coerce"))
 
 
         # Select only true numeric columns

@@ -170,6 +170,7 @@ class WelcomePage(ctk.CTkFrame):
     def clear_data(self):
         self.csv_loaded = False
         self.loaded_df = None
+        DataStorage.clear()
 
         # Reset label
         self.status_label.configure(text="", text_color="#000000")
