@@ -272,7 +272,7 @@ class ModelPage(ctk.CTkFrame):
 
         feat_title = ctk.CTkLabel(
             feat_card,
-            text="Feature Importance / ROC Curve",
+            text="Feature Importance / Coefficients / ROC",
             font=("Arial", 14, "bold"),
             fg_color="#F4F4F4"
         )
@@ -327,78 +327,77 @@ class ModelPage(ctk.CTkFrame):
             return None
 
     def _update_plots(self, problem_type, metrics):
-      """Show backend plots in bottom cards."""
+        """Show backend plots in bottom cards."""
 
-    # ===== CLASSIFICATION =====
-      if problem_type == "classification":
-        # ---- Left: confusion matrix ----
-        cm_b64 = metrics.get("confusion_matrix_plot")
-        cm_img = self._b64_to_ctkimage(cm_b64)
-        self.left_plot_img = cm_img
+        # ===== CLASSIFICATION =====
+        if problem_type == "classification":
+            # ---- Left: confusion matrix ----
+            cm_b64 = metrics.get("confusion_matrix_plot")
+            cm_img = self._b64_to_ctkimage(cm_b64)
+            self.left_plot_img = cm_img
 
-        if cm_img is not None:
-            self.plot_label_left.configure(image=cm_img, text="")
-        else:
-            self.plot_label_left.configure(
-                image=None,
-                text="Confusion matrix not available."
-            )
-
-        # ---- Right: prefer feature importance, else ROC ----
-        feat_b64 = metrics.get("feature_importance_plot")
-        roc_b64 = metrics.get("roc_curve_plot")
-
-        right_img = None
-        if feat_b64 is not None:
-            right_img = self._b64_to_ctkimage(feat_b64)
-        elif roc_b64 is not None:
-            right_img = self._b64_to_ctkimage(roc_b64)
-
-        self.right_plot_img = right_img
-
-        if right_img is not None:
-            self.feat_label_right.configure(image=right_img, text="")
-        else:
-            # Choose appropriate message
-            if "feature_importance_plot" in metrics:
-                msg = "Feature importance could not be rendered."
-            elif "roc_curve_plot" in metrics:
-                msg = "ROC curve could not be rendered."
+            if cm_img is not None:
+                self.plot_label_left.configure(image=cm_img, text="")
             else:
-                msg = (
-                    "No feature importance or ROC curve available.\n"
-                    "ROC requires binary classification with predict_proba."
+                self.plot_label_left.configure(
+                    image=None,
+                    text="Confusion matrix not available."
                 )
-            self.feat_label_right.configure(image=None, text=msg)
 
-    # ===== REGRESSION =====
-      else:  # regression
-        # ---- Left: Predicted vs Actual ----
-        pred_b64 = metrics.get("predicted_vs_actual_plot")
-        pred_img = self._b64_to_ctkimage(pred_b64)
-        self.left_plot_img = pred_img
+            # ---- Right: prefer feature importance, else ROC ----
+            feat_b64 = metrics.get("feature_importance_plot")
+            roc_b64 = metrics.get("roc_curve_plot")
 
-        if pred_img is not None:
-            self.plot_label_left.configure(image=pred_img, text="")
-        else:
-            self.plot_label_left.configure(
-                image=None,
-                text="Predicted vs Actual plot not available."
-            )
+            right_img = None
+            if feat_b64 is not None:
+                right_img = self._b64_to_ctkimage(feat_b64)
+            elif roc_b64 is not None:
+                right_img = self._b64_to_ctkimage(roc_b64)
 
-        # ---- Right: Feature importance (if available) ----
-        feat_b64 = metrics.get("feature_importance_plot")
-        feat_img = self._b64_to_ctkimage(feat_b64)
-        self.right_plot_img = feat_img
+            self.right_plot_img = right_img
 
-        if feat_img is not None:
-            self.feat_label_right.configure(image=feat_img, text="")
-        else:
-            self.feat_label_right.configure(
-                image=None,
-                text="Feature importance not available\nfor this model."
-            )
+            if right_img is not None:
+                self.feat_label_right.configure(image=right_img, text="")
+            else:
+                # Choose appropriate message
+                if "feature_importance_plot" in metrics:
+                    msg = "Feature importance could not be rendered."
+                elif "roc_curve_plot" in metrics:
+                    msg = "ROC curve could not be rendered."
+                else:
+                    msg = (
+                        "No feature importance or ROC curve available.\n"
+                        "ROC requires binary classification with predict_proba."
+                    )
+                self.feat_label_right.configure(image=None, text=msg)
 
+        # ===== REGRESSION =====
+        else:  # regression
+            # ---- Left: Predicted vs Actual ----
+            pred_b64 = metrics.get("predicted_vs_actual_plot")
+            pred_img = self._b64_to_ctkimage(pred_b64)
+            self.left_plot_img = pred_img
+
+            if pred_img is not None:
+                self.plot_label_left.configure(image=pred_img, text="")
+            else:
+                self.plot_label_left.configure(
+                    image=None,
+                    text="Predicted vs Actual plot not available."
+                )
+
+            # ---- Right: Feature importance (if available) ----
+            feat_b64 = metrics.get("feature_importance_plot")
+            feat_img = self._b64_to_ctkimage(feat_b64)
+            self.right_plot_img = feat_img
+
+            if feat_img is not None:
+                self.feat_label_right.configure(image=feat_img, text="")
+            else:
+                self.feat_label_right.configure(
+                    image=None,
+                    text="Feature importance not available\nfor this model."
+                )
 
     # ───────── lifecycle ─────────
     def refresh(self):
@@ -550,9 +549,8 @@ class ModelPage(ctk.CTkFrame):
     # ───────── Predict new data ─────────
     def on_predict_clicked(self):
         """
-        Open a small window where the user can enter ORIGINAL feature values
-        (e.g., Stock, Rating, Country...). We reuse the same feature engineering
-        pipeline as training, then predict with the trained model.
+        Open a small window where the user can enter ORIGINAL feature values.
+        Now with proper range validation!
         """
         if self.best_model is None or not self.selected_features_current:
             messagebox.showerror("Error", "No trained model available.")
@@ -563,6 +561,7 @@ class ModelPage(ctk.CTkFrame):
 
         entry_widgets = {}      # numeric inputs
         dropdown_widgets = {}   # categorical inputs
+        range_info = {}         # store min/max for validation
 
         row_idx = 0
         info_label = ctk.CTkLabel(
@@ -581,13 +580,16 @@ class ModelPage(ctk.CTkFrame):
             # Label
             lbl_text = feat
             if series.dtype != object:
-                # numeric -> show min/max hint
+                # numeric -> show min/max hint AND store for validation
                 try:
                     min_val = series.min()
                     max_val = series.max()
                     lbl_text += f" (min={min_val}, max={max_val})"
+                    range_info[feat] = (min_val, max_val)  # STORE THIS
                 except Exception:
-                    pass
+                    range_info[feat] = (None, None)
+            else:
+                range_info[feat] = (None, None)
 
             lbl = ctk.CTkLabel(top, text=lbl_text + ":", anchor="w")
             lbl.grid(row=row_idx, column=0, padx=10, pady=3, sticky="w")
@@ -629,16 +631,33 @@ class ModelPage(ctk.CTkFrame):
                         val_str = entry_widgets[feat].get().strip()
                         if val_str == "":
                             raise ValueError(f"Feature '{feat}' is empty.")
-                        raw_dict[feat] = float(val_str)
+                        
+                        # Convert to float
+                        try:
+                            val = float(val_str)
+                        except ValueError:
+                            raise ValueError(f"Feature '{feat}' must be a valid number.")
+                        
+                        # ===== VALIDATE RANGE =====
+                        min_val, max_val = range_info[feat]
+                        if min_val is not None and max_val is not None:
+                            if val < min_val or val > max_val:
+                                raise ValueError(
+                                    f"Feature '{feat}' is out of valid range!\n"
+                                    f"You entered: {val}\n"
+                                    f"Valid range: [{min_val}, {max_val}]\n\n"
+                                    f"Please enter a value within the training data range."
+                                )
+                        
+                        raw_dict[feat] = val
+                        
             except ValueError as e:
-                messagebox.showerror("Input error", str(e))
+                messagebox.showerror("Input Error", str(e))
                 return
 
             df_new_raw = pd.DataFrame([raw_dict])
 
             # 2) Reuse SAME feature engineering as training
-            #    We append the new row to the training df (df_for_fe),
-            #    run feature_engineering, then take the last row as X_new.
             if self.df_for_fe is None or self.target_name_current is None:
                 messagebox.showerror("Error", "Training metadata missing.")
                 return
